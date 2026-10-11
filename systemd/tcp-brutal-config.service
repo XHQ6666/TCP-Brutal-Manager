@@ -1,0 +1,13 @@
+[Unit]
+Description=TCP Brutal Manager
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tcp-brutal-config run -c /etc/tcp-brutal-config/config.json
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

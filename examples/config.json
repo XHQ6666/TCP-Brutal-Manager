@@ -1,0 +1,5 @@
+{
+  "settings": {"dns": {"query_interval": "60s", "timeout": "5s"}},
+  "log": {"enabled": true, "level": "default", "path": "/var/log/tcp-brutal-config.log"},
+  "rules": [{"ip": "192.0.2.1", "rate": "200Mbps"}]
+}
