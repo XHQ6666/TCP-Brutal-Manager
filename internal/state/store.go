@@ -36,27 +36,31 @@ type envelope struct {
 func Load(dir string) (Data, bool, error) {
 	d := Data{Version: 1}
 	b, e := os.ReadFile(filepath.Join(dir, "state.json"))
-	_, marker := os.Stat(filepath.Join(dir, "initialized"))
+	_, markerErr := os.Stat(filepath.Join(dir, "initialized"))
+	if markerErr != nil && !os.IsNotExist(markerErr) {
+		return d, false, markerErr
+	}
+	marked := markerErr == nil
 	if os.IsNotExist(e) {
-		return d, marker == nil, nil
+		return d, marked, nil
 	}
 	if e != nil {
 		return d, false, e
 	}
 	var env envelope
 	if e = json.Unmarshal(b, &env); e != nil {
-		return d, true, nil
+		return d, marked, nil
 	}
 	var canonical bytes.Buffer
 	if e = json.Compact(&canonical, env.Data); e != nil {
-		return d, true, nil
+		return d, marked, nil
 	}
 	sum := sha256.Sum256(canonical.Bytes())
 	if hex.EncodeToString(sum[:]) != env.Checksum {
-		return d, true, nil
+		return d, marked, nil
 	}
 	if e = json.Unmarshal(env.Data, &d); e != nil || d.Version != 1 {
-		return Data{Version: 1}, true, nil
+		return Data{Version: 1}, marked, nil
 	}
 	return d, false, nil
 }

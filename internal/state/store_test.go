@@ -7,6 +7,14 @@ import (
 )
 
 func TestStore(t *testing.T) {
+	firstInstall := t.TempDir()
+	if e := os.WriteFile(filepath.Join(firstInstall, "state.json"), []byte("broken"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if _, recovery, e := Load(firstInstall); e != nil || recovery {
+		t.Fatalf("unmarked damaged state must be treated as first install: recovery=%t err=%v", recovery, e)
+	}
+
 	dir := t.TempDir()
 	_, bad, e := Load(dir)
 	if e != nil || bad {

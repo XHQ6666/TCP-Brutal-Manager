@@ -85,7 +85,7 @@ func (m *Manager) desired(ctx context.Context, refresh bool) ([]rules.Rule, map[
 		}
 		if e != nil {
 			failed[source] = true
-			issues = append(issues, config.Issue{i, "rules", e.Error(), source})
+			issues = append(issues, config.Issue{Index: i, Component: "rules", Error: e.Error(), Source: source})
 			continue
 		}
 		candidate = append(candidate, expanded...)
@@ -93,13 +93,50 @@ func (m *Manager) desired(ctx context.Context, refresh bool) ([]rules.Rule, map[
 	final, conflicts := rules.Finalize(candidate)
 	for src := range conflicts {
 		failed[src] = true
-		issues = append(issues, config.Issue{-1, "rules", "same-prefix parameter conflict", src})
+		issues = append(issues, config.Issue{Index: -1, Component: "rules", Error: "same-prefix parameter conflict", Source: src})
 	}
 	return final, failed, issues
 }
 func protected(r rules.Rule, failed map[string]bool) bool {
 	for _, s := range r.Sources {
 		if failed[s] {
+			return true
+		}
+	}
+	return false
+}
+func protectedSources(sources []string, failed map[string]bool) []string {
+	out := []string{}
+	for _, source := range sources {
+		if failed[source] {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+func mergeSources(a, b []string) []string {
+	seen := map[string]bool{}
+	out := append([]string{}, a...)
+	for _, source := range a {
+		seen[source] = true
+	}
+	for _, source := range b {
+		if !seen[source] {
+			out = append(out, source)
+			seen[source] = true
+		}
+	}
+	return out
+}
+func sameRouteIdentity(a, b route.Route) bool {
+	return a.Prefix == b.Prefix && a.Table == b.Table && a.Index == b.Index && a.Protocol == b.Protocol
+}
+func routeAttributeNeeded(a state.Attribute, selected map[netip.Prefix]route.Route, records []state.Record, failed map[string]bool) bool {
+	if current, ok := selected[a.Route.Prefix]; ok && sameRouteIdentity(a.Route, current) {
+		return true
+	}
+	for _, record := range records {
+		if protected(record.Rule, failed) && (record.Rule.Table != nil || record.Rule.Interface != "") && route.Matches(a.Route, record.Rule) {
 			return true
 		}
 	}
@@ -145,10 +182,20 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 		for _, s := range r.Sources {
 			failed[s] = true
 		}
-		plan.Issues = append(plan.Issues, config.Issue{-1, "apply", msg, strings.Join(r.Sources, ",")})
+		plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "apply", Error: msg, Source: strings.Join(r.Sources, ",")})
 	}
-	for _, r := range desired {
+	for i := range desired {
+		r := desired[i]
 		targets[r.Prefix] = r
+		if previous, ok := owned[r.Prefix]; ok && protected(previous.Rule, failed) {
+			if !previous.Rule.Equal(r) {
+				issue(r, "existing same-prefix state is protected by a failed source")
+				continue
+			}
+			r.Sources = mergeSources(r.Sources, protectedSources(previous.Rule.Sources, failed))
+			desired[i] = r
+			targets[r.Prefix] = r
+		}
 		if c, ok := now[r.Prefix]; ok {
 			if _, ours := owned[r.Prefix]; !ours && !c.Matches(r) && !plan.Recovery {
 				issue(r, "external same-prefix rule conflict")
@@ -184,6 +231,7 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 				}
 			}
 			if protected(r, failed) {
+				delete(selected, r.Prefix)
 				continue
 			}
 			if matches[0].Algorithm != "brutal" || matches[0].Locked != r.Lock {
@@ -222,16 +270,8 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 		}
 	}
 	for _, a := range data.Attributes {
-		if _, wanted := targets[a.Route.Prefix]; !wanted {
-			keep := false
-			for _, rec := range data.Records {
-				if rec.Rule.Prefix == a.Route.Prefix && protected(rec.Rule, failed) {
-					keep = true
-				}
-			}
-			if !keep {
-				plan.RouteCleanup = append(plan.RouteCleanup, a)
-			}
+		if !routeAttributeNeeded(a, selected, data.Records, failed) {
+			plan.RouteCleanup = append(plan.RouteCleanup, a)
 		}
 	}
 	different := len(plan.RouteCleanup)+len(plan.Added)+len(plan.Updated)+len(plan.Removed)+len(plan.RouteRepair) > 0 || plan.Reorder || plan.Recovery
@@ -257,18 +297,68 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 		if e = m.Control.Exec(ctx, "flush"); e != nil {
 			return plan, 1, e
 		}
+		all, e = m.Routes.Read(ctx)
+		if e != nil {
+			return plan, 1, fmt.Errorf("recovery route read: %w", e)
+		}
+		data.Recovery = "cleaning"
+		data.Attributes = nil
 		for _, v := range all {
 			if v.Algorithm == "brutal" {
-				if e = m.change(ctx, v, "", false); e != nil {
-					return plan, 1, fmt.Errorf("recovery cleanup: %w", e)
-				}
+				data.Attributes = append(data.Attributes, state.Attribute{Route: v, AddedAlgorithm: true, ChangedLock: true})
 			}
 		}
-		data = state.Data{Version: 1, Recovery: "rebuilding", Generation: data.Generation}
+		if e = state.Save(m.StateDir, data); e != nil {
+			return plan, 1, e
+		}
+	}
+	if data.Recovery == "cleaning" {
+		remainingRecovery := []state.Attribute{}
+		for _, a := range data.Attributes {
+			if er := m.cleanup(ctx, a); er != nil {
+				remainingRecovery = append(remainingRecovery, a)
+				plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "route", Error: er.Error()})
+			}
+		}
+		data.Attributes = remainingRecovery
+		if e = state.Save(m.StateDir, data); e != nil {
+			return plan, 1, e
+		}
+		if len(remainingRecovery) > 0 {
+			return plan, 7, nil
+		}
+		data.Recovery = "rebuilding"
 		if e = state.Save(m.StateDir, data); e != nil {
 			return plan, 1, e
 		}
 		owned = map[netip.Prefix]state.Record{}
+	}
+	if plan.Recovery && data.Recovery == "rebuilding" {
+		all, e = m.Routes.Read(ctx)
+		if e != nil {
+			return plan, 1, fmt.Errorf("recovery route reread: %w", e)
+		}
+		selected = map[netip.Prefix]route.Route{}
+		plan.RouteRepair = nil
+		for _, r := range desired {
+			if protected(r, failed) || (r.Table == nil && r.Interface == "") {
+				continue
+			}
+			matches := []route.Route{}
+			for _, v := range all {
+				if route.Matches(v, r) {
+					matches = append(matches, v)
+				}
+			}
+			if len(matches) != 1 {
+				issue(r, "policy route no longer uniquely matches after recovery flush")
+				continue
+			}
+			selected[r.Prefix] = matches[0]
+			if matches[0].Algorithm != "brutal" || matches[0].Locked != r.Lock {
+				plan.RouteRepair = append(plan.RouteRepair, matches[0])
+			}
+		}
 	}
 	if e = state.Save(m.StateDir, data); e != nil {
 		return plan, 1, e
@@ -286,7 +376,7 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 			continue
 		}
 		if additions[r.Prefix] {
-			data.Pending = append(data.Pending, state.Record{r})
+			data.Pending = append(data.Pending, state.Record{Rule: r})
 			if e = state.Save(m.StateDir, data); e != nil {
 				return plan, 1, e
 			}
@@ -320,7 +410,7 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 				merged := false
 				for i := range data.Attributes {
 					prev := &data.Attributes[i]
-					if prev.Route.Prefix == a.Route.Prefix && prev.Route.Table == a.Route.Table && prev.Route.Interface == a.Route.Interface {
+					if sameRouteIdentity(prev.Route, a.Route) {
 						a.AddedAlgorithm = a.AddedAlgorithm || prev.AddedAlgorithm
 						a.ChangedLock = a.ChangedLock || prev.ChangedLock
 						*prev = a
@@ -343,7 +433,7 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 		verified[r.Prefix] = true
 		_, wasOwned := owned[r.Prefix]
 		if wasOwned || additions[r.Prefix] {
-			owned[r.Prefix] = state.Record{r}
+			owned[r.Prefix] = state.Record{Rule: r}
 			data.Records = nil
 			for _, rec := range owned {
 				data.Records = append(data.Records, rec)
@@ -379,15 +469,13 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 	}
 	remaining := []state.Attribute{}
 	for _, a := range data.Attributes {
-		_, ownedNeeded := owned[a.Route.Prefix]
-		_, desiredNeeded := targets[a.Route.Prefix]
-		if ownedNeeded || desiredNeeded {
+		if routeAttributeNeeded(a, selected, data.Records, failed) {
 			remaining = append(remaining, a)
 			continue
 		}
 		if e = m.cleanup(ctx, a); e != nil {
 			remaining = append(remaining, a)
-			plan.Issues = append(plan.Issues, config.Issue{-1, "route", e.Error(), ""})
+			plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "route", Error: e.Error()})
 		}
 	}
 	data.Attributes = remaining
@@ -442,7 +530,7 @@ func (m *Manager) change(ctx context.Context, r route.Route, algo string, lock b
 		return e
 	}
 	for _, v := range all {
-		if v.Prefix == r.Prefix && v.Table == r.Table && v.Index == r.Index && v.Algorithm == algo && v.Locked == lock {
+		if sameRouteIdentity(v, r) && v.Algorithm == algo && v.Locked == lock {
 			return nil
 		}
 	}
@@ -454,17 +542,20 @@ func (m *Manager) cleanup(ctx context.Context, a state.Attribute) error {
 		return e
 	}
 	for _, r := range all {
-		if r.Prefix == a.Route.Prefix && r.Table == a.Route.Table && r.Interface == a.Route.Interface {
-			if r.Algorithm != a.Route.Algorithm || r.Locked != a.Route.Locked {
-				return nil
-			}
-			algo, lock := r.Algorithm, r.Locked
-			if a.AddedAlgorithm {
-				algo = ""
-			}
-			if a.ChangedLock {
-				lock = false
-			}
+		if !sameRouteIdentity(r, a.Route) {
+			continue
+		}
+		algo, lock := r.Algorithm, r.Locked
+		changed := false
+		if a.AddedAlgorithm && r.Algorithm == a.Route.Algorithm {
+			algo = ""
+			changed = true
+		}
+		if a.ChangedLock && r.Locked == a.Route.Locked {
+			lock = false
+			changed = true
+		}
+		if changed {
 			return m.change(ctx, r, algo, lock)
 		}
 	}
@@ -504,7 +595,7 @@ func (m *Manager) Flush(ctx context.Context, dry bool) (Plan, int, error) {
 	for _, a := range data.Attributes {
 		if e = m.cleanup(ctx, a); e != nil {
 			left = append(left, a)
-			p.Issues = append(p.Issues, config.Issue{-1, "route", e.Error(), ""})
+			p.Issues = append(p.Issues, config.Issue{Index: -1, Component: "route", Error: e.Error()})
 		}
 	}
 	data.Records = nil
