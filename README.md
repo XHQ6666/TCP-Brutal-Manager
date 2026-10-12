@@ -46,3 +46,9 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o tcp-brutal-config ./
 ```
 
 Exit codes: 0 success, 1 runtime error, 2 global configuration/CLI error, 3 difference (read-only commands), 4 verification error, 5 permission error, 6 kernel/dependency error, 7 partial success/degraded. Apply dry-run returns 3 for ordinary differences. Run's normal signal shutdown returns 0, not a health verdict for previous rounds.
+
+## Release builds
+
+Run `bash scripts/build.sh` from a clean Git checkout to build Linux amd64, arm64, 386, armv5, armv6 and armv7 packages plus SHA256SUMS. All binaries embed VERSION (default 1.0.0-Beta), the source commit and UTC build time. CI uses GITHUB_SHA; exported source requires an explicit BUILD_COMMIT. Do not label modified source with an older commit. BUILD_TIME may be supplied for reproducible metadata.
+
+Use `bash scripts/build.sh dist amd64` for one target. Local validation with a synthetic commit must remain separate from release artifacts. Check `version` or `--version` on the matching host before publishing.

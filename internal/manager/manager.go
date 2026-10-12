@@ -250,14 +250,24 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 		}
 	}
 	wantedOrder := []netip.Prefix{}
+	orderScope := map[netip.Prefix]bool{}
 	for _, r := range desired {
-		if !protected(r, failed) {
-			wantedOrder = append(wantedOrder, r.Prefix)
+		if protected(r, failed) {
+			continue
 		}
+		// Existing external rules may be reused without becoming managed.
+		// New rules and recovery rebuilds belong to the managed order.
+		if _, ours := owned[r.Prefix]; !ours && !plan.Recovery {
+			if _, exists := now[r.Prefix]; exists {
+				continue
+			}
+		}
+		orderScope[r.Prefix] = true
+		wantedOrder = append(wantedOrder, r.Prefix)
 	}
 	actualOrder := []netip.Prefix{}
 	for _, r := range current {
-		if _, ok := targets[r.Prefix]; ok {
+		if orderScope[r.Prefix] {
 			actualOrder = append(actualOrder, r.Prefix)
 		}
 	}
@@ -500,7 +510,9 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 			if !v.Matches(wanted) {
 				issue(wanted, "final rule verification failed")
 			}
-			actual = append(actual, v.Prefix)
+			if orderScope[v.Prefix] {
+				actual = append(actual, v.Prefix)
+			}
 		}
 	}
 	if len(actual) == len(wantedOrder) {
