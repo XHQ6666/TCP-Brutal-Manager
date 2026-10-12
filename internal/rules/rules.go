@@ -55,7 +55,7 @@ func Rate(raw json.RawMessage) (uint64, error) {
 	}
 	v := n.Num().Uint64()
 	if v > 1<<32-1 {
-		return 0, fmt.Errorf("rate exceeds Beta uint32 Mbps limit")
+		return 0, fmt.Errorf("rate exceeds uint32 Mbps limit")
 	}
 	return v, nil
 }

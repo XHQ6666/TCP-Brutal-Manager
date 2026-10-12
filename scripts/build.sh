@@ -5,7 +5,7 @@ project_root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$project_root"
 out=${1:-"$project_root/dist"}
 if [ "$#" -gt 0 ]; then shift; fi
-version=${VERSION:-1.0.0-Beta}
+version=${VERSION:-1.0.0}
 source_commit=${BUILD_COMMIT:-${GITHUB_SHA:-}}
 if [ -z "$source_commit" ]; then
   source_commit=$(git rev-parse HEAD 2>/dev/null || true)
@@ -42,6 +42,9 @@ for target in "$@"; do
   cp README.md "$package_dir/README.md"
   cp examples/config.json "$package_dir/config.example.json"
   cp systemd/tcp-brutal-config.service "$package_dir/tcp-brutal-config.service"
+  cp RELEASE_NOTES.md "$package_dir/RELEASE_NOTES.md"
+  mkdir -p "$package_dir/docs"
+  cp docs/CONFIGURATION.md docs/CLI.md docs/SOP.md "$package_dir/docs/"
   COPYFILE_DISABLE=1 tar --no-xattrs -czf "$out/$name.tar.gz" -C "$out" "$name"
   archives+=("$name.tar.gz")
   printf 'Built %s commit=%s built=%s\n' "$target" "$source_commit" "$build_time"

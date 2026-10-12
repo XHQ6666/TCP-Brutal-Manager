@@ -1,9 +1,25 @@
-# 1.0.0-Beta — Pre-Release
+# 1.0.0
 
-First TCP Brutal Manager Beta for Linux. Configuration and rule maintenance through official brutalctl v2.0.1, System/DoH/DoT/DoQ, numeric CIDR ordering, managed-source records, per-rule error isolation, run mode, route/link watches, and matching cleanup of managed policy-route attributes.
+First stable TCP Brutal Manager release for Linux, with TCP Brutal v2.0.1 as the supported/tested baseline.
 
-Artifacts: static Linux archives for amd64, arm64, 386, armv5, armv6, and armv7. Each archive contains the matching tcp-brutal-config binary, example configuration, systemd unit, and README. SHA-256 checksums are provided alongside the archives.
+## Features
 
-Validation: local unit/fake-controller integration tests and race checks; Linux CI executes Linux Netlink codec preservation tests and builds. The six target binaries cross-compiled with Go 1.27.1 and were verified as ELF files for their declared architectures. This does **not** claim live TCP Brutal module, real Tailscale rebuilding, public DNS interoperability, or runtime tests on all six CPU architectures. Run on an isolated Linux test host before production use.
+- JSON rules for IPs and domains, integer-Mbps bit-rate conversion and per-family CIDR.
+- System, DoH, DoT and DoQ resolvers, named DNS selection rules and optional fallback.
+- Per-rule failure isolation, shared-source ownership, safe preservation of external rules.
+- Run mode with configuration and Netlink route/link events, independent DNS/rule/route timers.
+- Existing policy-route attribute management, matching cleanup, state integrity and resumable recovery.
 
-Important behavior: flush clears all Brutal rules; stop run first to prevent reapplication. Recorded-state corruption with an initialization marker invokes configured global rebuild and removes brutal attributes across tables. Ordinary routes are delegated to brutalctl. Full destructive reorder is deferred in normal apply.
+## Fixes since Beta
+
+Unclaimed external rules are excluded from managed order comparison. Regression tests retain detection of real managed-order differences. A common build script embeds version, source commit and UTC build time for every target and refuses missing provenance.
+
+## Packages and docs
+
+Linux amd64, arm64, 386, armv5, armv6 and armv7 archives, SHA256SUMS, example configuration, systemd template and formal configuration/CLI/operations documentation.
+
+## Validation and limits
+
+Unit/fake-controller integration, race checks, vet and Linux Netlink tests run in CI. Linux amd64 live tests with TCP Brutal 2.0.1 covered public System/DoH/DoT/DoQ, rule updates and isolation, reload, route/link repair, external/shared ownership, Flush and corrupt-record recovery. The ordering patch was validated by targeted regressions and Linux CI; it has not yet replaced the live test host binary.
+
+Other architectures are cross-compiled, not live-kernel validated. No throughput claim is made. Crash/disk-full/concurrent external-route failure cases are not exhaustive. Route read/modify/write is not atomic. Destructive reordering remains deferred during normal Apply. Flush clears all rules; marked corrupt state triggers global rebuild. The systemd template was not installed in the live tests.

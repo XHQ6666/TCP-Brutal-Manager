@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-var version = "1.0.0-Beta"
+var version = "1.0.0"
 var commit = "dev"
 var buildTime = "unknown"
 

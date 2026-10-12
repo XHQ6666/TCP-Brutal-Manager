@@ -1,54 +1,57 @@
 # TCP Brutal Manager
 
-Linux TCP Brutal rule manager — **1.0.0-Beta (Pre-Release)**.
-
-Configuration-driven management through official `brutalctl` (baseline v2.0.1), live System/DoH/DoT/DoQ resolution, IPv4-first numeric ordering, partial-failure isolation, managed-source tracking, and continuous maintenance.
+TCP Brutal Manager **1.0.0** manages Linux TCP Brutal rules from a JSON configuration. It uses official `brutalctl` for rule operations and ordinary routes, and Netlink for existing policy-route attributes. Run mode watches configuration and route/link events, polls rules, and refreshes domain records on an independent DNS timer.
 
 ## Requirements
 
-Linux, TCP Brutal v2.0.1 module, `brutalctl`, iproute2, appropriate permissions. Build with the Go version in go.mod. No kernel module or congestion-control change is made by installing this binary.
+- Linux with TCP Brutal **v2.0.1**, the supported/tested baseline.
+- Official `brutalctl`, iproute2 and permissions to read or modify rules/routes as appropriate.
+- For source builds, the Go version specified in `go.mod`.
 
-## Usage
+Linux packages are provided for amd64, arm64, 386, armv5, armv6 and armv7. Each archive contains the binary `tcp-brutal-config`, example configuration, systemd template, release notes and user documentation. The CLI help name follows the executable's invoked filename.
+
+## Quick start
+
+Verify the archive against `SHA256SUMS`, extract it, and edit `config.example.json` with your own destinations and rates. The example destination is a documentation address, not a production endpoint.
 
 ```sh
-./tcp-brutal-config -h
-./tcp-brutal-config check -c config.json
-./tcp-brutal-config apply -c config.json -n
-./tcp-brutal-config apply -c config.json
-./tcp-brutal-config run -c config.json
-./tcp-brutal-config list
-./tcp-brutal-config flush -n
+manager_bin=./tcp-brutal-config
+manager_config=./config.example.json
+"$manager_bin" version
+"$manager_bin" check -c "$manager_config"
+"$manager_bin" apply -c "$manager_config" -n
+# After reviewing the plan, apply once or run continuously:
+"$manager_bin" apply -c "$manager_config"
+"$manager_bin" run -c "$manager_config"
 ```
 
-Run shutdown preserves state. Stop run before flushing if you want to keep the rules cleared. **Flush clears all Brutal rules, including rules from other tools.** State-record corruption with an existing initialization marker triggers the configured global recovery policy: clear rules and brutal attributes across routing tables, then rebuild valid configuration.
+`check`, `diff` and `status` query DNS and inspect the current plan without modifying rules. Exit **3** means a difference; **7** means partial/degraded results. SIGTERM stops Run without clearing rules.
 
-Rate accepts a number (Mbps) or a bit-rate string: 200, "200Mbps", "2.5Gbps". It must convert exactly to a positive integer Mbps. The Beta input limit is uint32 Mbps; no byte-unit rates are accepted.
+**Flush clears all Brutal rules, including external rules.** Stop Run first if you want them to remain cleared. A damaged/missing management record with an initialization marker causes Apply to rebuild globally and remove `brutal` route attributes across tables. Read the recovery procedure before deleting or restoring state files.
 
-`cidr` defaults to IPv4 /32 or IPv6 /128. Domain rules also accept `{ "v4": 24, "v6": 64 }`. Ordinary routes are delegated to brutalctl; explicit `table` and/or `interface` target an existing unique exact route, never create a peer route.
+## Documentation
 
-Configuration events and Netlink route/link events are watched. DNS uses `settings.dns.query_interval` (60s default). Brutal rules use independent polling. In-process successful DNS results support non-DNS reconciliation; no cross-run DNS cache is reused.
+- [Configuration reference](docs/CONFIGURATION.md): rates, CIDR, resolvers, DNS selection and settings.
+- [CLI reference](docs/CLI.md): commands, options, outputs and exit codes.
+- [Operations guide](docs/SOP.md): installation, Tailscale, continuous maintenance, Flush and recovery.
+- [Release notes](RELEASE_NOTES.md): changes, validation and limits.
 
-State is stored in `/var/lib/tcp-brutal-config`, logs default to `/var/log/tcp-brutal-config.log`, configuration defaults to `/etc/tcp-brutal-config/config.json`. Help uses the executable's invoked filename.
+Default configuration is `/etc/tcp-brutal-config/config.json`, state is `/var/lib/tcp-brutal-config`, and the file log is `/var/log/tcp-brutal-config.log`. Keep a stable configuration path: source identity includes that path.
 
-## Validation and Beta limits
+## Behavior and validation
 
-Unit and fake-controller integration tests verify defaults, matching, CIDR, rates, ordering, deduplication, parser behavior, state checksums, dry-run and local-failure isolation. Linux-specific Netlink metric preservation tests run in Linux CI. Local macOS checks do not validate a live TCP Brutal kernel, real Tailscale route rebuilding, or interoperability with public encrypted DNS servers.
+Rules are ordered IPv4 first, then by normalized network address and CIDR length. Identical rules retain all sources; conflicting parameters for the same Prefix are isolated. Normal Apply preserves external rules and does not use destructive Flush to repair order. Ordinary routes are delegated to brutalctl; policy rules require a unique **exact** existing route.
 
-The Beta must be tested on an isolated Linux host before production use. Full kernel-order repair is deferred if it would require destructive rebuilding. Source identity uses config path, source value and duplicate occurrence, so invalid edits that cannot identify an old source do not protect it. Route read/modify/write is not atomic against other route managers.
+Tests include unit/fake-controller integration, race checks and Linux Netlink tests. Linux amd64 live tests with TCP Brutal 2.0.1 covered DNS System/DoH/DoT/DoQ, rule updates, failure isolation, configuration reload, route/link repair, ownership, Flush and state recovery. The external-rule ordering fix has dedicated regressions and Linux CI coverage. Other architectures were cross-compiled, not live-kernel tested. Throughput, every crash point and concurrent external route mutations are not exhaustively verified; Netlink read/modify/write is not atomic.
 
-Detailed confirmed behavior is in [PLAN](docs/PLAN.md); operational procedure in [SOP](docs/SOP.md). CLI status currently returns the same live synchronization plan as diff, with the same exit semantics.
-
-## Build and test
+## Build
 
 ```sh
 go test -race ./...
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o tcp-brutal-config ./cmd/tcp-brutal-config
+go vet ./...
+bash scripts/build.sh
+# One architecture, with an explicit output directory:
+bash scripts/build.sh dist amd64
 ```
 
-Exit codes: 0 success, 1 runtime error, 2 global configuration/CLI error, 3 difference (read-only commands), 4 verification error, 5 permission error, 6 kernel/dependency error, 7 partial success/degraded. Apply dry-run returns 3 for ordinary differences. Run's normal signal shutdown returns 0, not a health verdict for previous rounds.
-
-## Release builds
-
-Run `bash scripts/build.sh` from a clean Git checkout to build Linux amd64, arm64, 386, armv5, armv6 and armv7 packages plus SHA256SUMS. All binaries embed VERSION (default 1.0.0-Beta), the source commit and UTC build time. CI uses GITHUB_SHA; exported source requires an explicit BUILD_COMMIT. Do not label modified source with an older commit. BUILD_TIME may be supplied for reproducible metadata.
-
-Use `bash scripts/build.sh dist amd64` for one target. Local validation with a synthetic commit must remain separate from release artifacts. Check `version` or `--version` on the matching host before publishing.
+Use a clean Git checkout. All builds embed VERSION (default `1.0.0`), the source commit and UTC build time. CI uses `GITHUB_SHA`; exported source requires `BUILD_COMMIT`. `BUILD_TIME` can override the UTC timestamp. Do not label changed source with an older commit. Validation artifacts with synthetic commits are not release artifacts.
