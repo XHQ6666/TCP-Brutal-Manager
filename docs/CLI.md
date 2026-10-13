@@ -55,3 +55,8 @@ manager_config=/etc/tcp-brutal-config/config.json
 优先处理全局错误，再处理局部 issues，最后看普通差异。运行时并非每个底层错误都能精确归入专用码，需同时读取 stderr/issues。Flush dry-run 当前正常返回 0；Run 正常退出 0 不证明之前每轮维护都健康，应核对日志及 check。
 
 Apply/check/diff/status 每次重新解析 DNS。Run 的配置/路由/规则核对事件使用本进程最近成功结果；DNS 定时器和相关域名/Resolver 配置变化才刷新，重启仍重新解析。
+
+
+### CIDR 路由维护输出
+
+`route_details` 展示业务 Prefix、实际 Route、route_strict 和计划动作；`route_summary` 中 matched 是解析重叠策略后的路由数量。check/diff/status 的 succeeded/failed 均为 0（未执行），Apply/Run 则记录完成维护的路由与失败数。无候选或路由局部失败返回 7，其他规则继续。

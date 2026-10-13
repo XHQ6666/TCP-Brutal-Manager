@@ -12,17 +12,18 @@ import (
 )
 
 type Rule struct {
-	Prefix    netip.Prefix `json:"prefix"`
-	RateMbps  uint64       `json:"rate_mbps"`
-	Lock      bool         `json:"lock"`
-	NoRoute   bool         `json:"noroute"`
-	Table     *uint32      `json:"table,omitempty"`
-	Interface string       `json:"interface,omitempty"`
-	Sources   []string     `json:"sources"`
+	Prefix      netip.Prefix `json:"prefix"`
+	RateMbps    uint64       `json:"rate_mbps"`
+	Lock        bool         `json:"lock"`
+	NoRoute     bool         `json:"noroute"`
+	Table       *uint32      `json:"table,omitempty"`
+	Interface   string       `json:"interface,omitempty"`
+	RouteStrict bool         `json:"route_strict,omitempty"`
+	Sources     []string     `json:"sources"`
 }
 
 func (r Rule) Equal(v Rule) bool {
-	return r.Prefix == v.Prefix && r.RateMbps == v.RateMbps && r.Lock == v.Lock && r.NoRoute == v.NoRoute && r.Interface == v.Interface && table(r.Table) == table(v.Table)
+	return r.Prefix == v.Prefix && r.RateMbps == v.RateMbps && r.Lock == v.Lock && r.NoRoute == v.NoRoute && r.RouteStrict == v.RouteStrict && r.Interface == v.Interface && table(r.Table) == table(v.Table)
 }
 func table(p *uint32) uint32 {
 	if p != nil {
@@ -134,7 +135,7 @@ func Normalize(c config.Rule, addrs []netip.Addr, source string) ([]Rule, error)
 		if e != nil {
 			return nil, e
 		}
-		out = append(out, Rule{netip.PrefixFrom(a, bits).Masked(), rate, lock, c.NoRoute || c.Table != nil || c.Interface != "", c.Table, c.Interface, []string{source}})
+		out = append(out, Rule{netip.PrefixFrom(a, bits).Masked(), rate, lock, c.NoRoute || c.Table != nil || c.Interface != "", c.Table, c.Interface, c.RouteStrict, []string{source}})
 	}
 	return out, nil
 }

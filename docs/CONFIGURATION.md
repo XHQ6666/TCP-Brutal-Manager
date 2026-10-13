@@ -50,12 +50,13 @@
 | cidr | 省略时 IPv4 /32、IPv6 /128。IP 场景使用整数；Domain 可用整数或 {"v4":24,"v6":64}，未给出的族使用最大长度。有效范围 v4 0–32、v6 0–128；显式 0 有效；null 不是缺省。主机位清零。 |
 | lock | 布尔值，省略默认 true；同时控制规则和 Go 写入的拥塞算法锁位。 |
 | noroute | 默认 false。true 将 noroute 传给 brutalctl，不建立普通路由。 |
-| table | 路由表号。指定后定位该表中唯一精确 Prefix 路由，并强制 noroute。 |
-| interface | 接口名。指定后跨表定位该接口上唯一精确 Prefix 路由，并强制 noroute；与 table 同时填写时两者必须匹配。 |
+| route_strict | 默认 false。true 仅匹配精确 CIDR；只约束 Go 管理路由，不影响 Brutal 大段规则。 |
+| table | 路由表号。指定后定位该表中 CIDR 范围内的全部已有路由，并强制 noroute。 |
+| interface | 接口名。指定后跨表定位该接口上 CIDR 范围内的全部已有路由，并强制 noroute；与 table 同时填写时两者必须匹配。 |
 
 同 Prefix 参数完全相同时去重并保留全部来源；全部来源都不再需要时才删除。相同 Prefix 参数冲突会隔离相关条目；不同 Prefix 允许重叠。Desired 按 IPv4→IPv6、网络地址数值升序、同地址 CIDR 长度升序排列。Current 保留内核顺序。外部复用规则不认领、不参与受管顺序比较。
 
-指定 table/interface 不会创建路由或 ip rule，也不会把覆盖网段或默认路由当作精确匹配。没有唯一精确匹配时跳过并报告，不影响独立规则。未指定两者时普通路由由 brutalctl 管理，错误可能发生在规则已写入之后，应核对实际状态。
+指定 table/interface 不会创建路由或 ip rule。默认处理同地址族且完全包含于业务 CIDR 的全部路由，包括精确网段与更具体子网；不处理更大的覆盖网段。`route_strict` 默认 false，true 时只匹配精确 CIDR，允许多个精确候选。无候选时 Brutal 规则仍维护并报告退化。多路径路由指定 interface 时要求全部下一跳符合接口。重叠业务 CIDR 由更具体者决定 Route lock；各 Brutal 规则保留自身速率。逐 Route 失败隔离，成功项不回滚。未指定两者时普通路由由 brutalctl 管理，错误可能发生在规则已写入之后，应核对实际状态。
 
 ## DNS Resolver 与选择规则
 

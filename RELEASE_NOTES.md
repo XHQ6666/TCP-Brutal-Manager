@@ -1,3 +1,22 @@
+# 1.0.1-Beta (Pre-Release)
+
+Policy routes now default to CIDR containment: one Brutal group can serve all matching existing routes in the configured table/interface, including more specific node routes. No aggregate route or per-node Brutal group is created.
+
+- Add route_strict (default false) for exact-prefix routing policies.
+- Maintain multiple routes with per-route failure isolation and most-specific policy lock precedence.
+- Preserve route identity, unrelated attributes, metrics and ECMP nexthops; interface-constrained ECMP requires all nexthops to match.
+- Continue maintaining the Brutal group when routes are temporarily absent; route/link events and the existing 60-second route resync maintain attributes.
+- Migrate valid v1 management records to v2 with a backup, without Flush; retain ambiguous legacy identities for review.
+- Add per-route plan details and matched/succeeded/failed summaries.
+
+Validation: local race/vet and six Linux cross-builds passed. Linux amd64 tests, Netlink attribute/ECMP preservation and an isolated real-route integration passed. Production Linux amd64 verification maintained five rules and seventeen policy routes without errors across a periodic maintenance cycle. Identifiers in reports are redacted. Other architectures remain compile-tested only; exhaustive crash/concurrency cases are not covered.
+
+Downgrade caution: older releases do not understand state v2. Do not restart an old binary against v2 records without reviewing route attributes and arranging restoration from deployment backups.
+
+Packages: Linux amd64, arm64, 386, armv5, armv6, armv7 and SHA256SUMS. This release is a pre-release.
+
+---
+
 # 1.0.0
 
 First stable TCP Brutal Manager release for Linux, with TCP Brutal v2.0.1 as the supported/tested baseline.

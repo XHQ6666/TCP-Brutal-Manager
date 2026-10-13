@@ -1,4 +1,4 @@
-# 运行维护指南（1.0.0）
+# 运行维护指南（1.0.1-Beta）
 
 本指南描述当前实现。配置字段见 [配置参考](CONFIGURATION.md)，命令和退出码见 [CLI 参考](CLI.md)。设计草案 PLAN.md 为历史资料，发生差异时以正式用户文档及实际实现为准。
 
@@ -54,15 +54,17 @@ systemctl enable --now tcp-brutal-config.service
 systemctl status tcp-brutal-config.service
 ```
 
-使用 Tailscale 策略路由时可添加 After=tailscaled.service 的 drop-in，但接口暂不可用仍需核对日志。Restart=on-failure；Run 的正常信号退出保留规则。systemd 模板未在本轮 live 测试中安装，不把该模板列为已实测部署保障。
+使用 Tailscale 策略路由时可添加 After=tailscaled.service 的 drop-in，但接口暂不可用仍需核对日志。Restart=on-failure；Run 的正常信号退出保留规则。已在 Linux amd64 测试环境验证服务启动、自启及定时维护；安装路径仍需按实际环境核对。
 
 ## Tailscale 与策略路由
 
-Tailscale 常在 table 52 建立节点 /32 路由。100.64.0.0/10 不等于某个节点的 /32：只有 /32 时，配置 /10+interface=tailscale0 会因没有精确匹配而跳过。
+Tailscale 常在 table 52 建立节点 /32 路由。配置一条大网段 Brutal 规则并指定 interface=tailscale0 或 table=52 后，Go 默认给范围内全部符合条件的已有路由维护 Brutal 属性，不拆分 Brutal 规则，也不创建大网段路由。
 
-- 希望 /10 Brutal 规则覆盖网段、保留 Tailscale 节点路由：配置 noroute=true，不指定 table/interface。
-- 希望 Go 维护某节点路由属性：配置该节点 IP、cidr=32，再填写 interface=tailscale0，可自动确定唯一表；也可同时填 table=52。
-- 不填写 table/interface 且 noroute=false 时，brutalctl 可能按普通默认出口创建路由。检查计划与实际路由，不从地址名称推断出口。
+- 范围包含精确网段和更具体子网，排除更大的覆盖路由与其他地址族。
+- route_strict=true 时只匹配精确 CIDR，仍允许多个精确候选。
+- 多路径路由指定 interface 时所有下一跳必须符合接口。
+- 无匹配路由时 Brutal 规则照常维护并报告退化；新路由出现后补属性。
+- 路由事件及时修复，settings.route.resync_interval 默认 60s 定时核对兜底，不触发额外 DNS 查询。
 
 策略路由必须已经存在；程序不创建整个 Table、Peer Route 或 ip rule。允许覆盖已有其他拥塞算法，清理不恢复旧算法。brutalctl 的 noroute/del 若会删外部 proto 233 路由，则隔离该规则。Route 的其他字段与 metrics 锁位保留，但读改写不是原子操作，外部竞争会导致暂缓或验证失败。
 
@@ -102,3 +104,8 @@ check=3 先看差异，7 先看 issues 与 would_reorder。普通配置/模块/�
 真实受管顺序不一致而无法无损重排时，Apply 保留运行状态并返回 7；不自动 Flush。外部未认领的复用规则不参与受管顺序比较。
 
 当前实测为 Linux amd64、TCP Brutal 2.0.1，覆盖公共 DNS 四种解析方式及规则/路由/监听/日志/恢复主要行为。其他架构仅交叉编译；吞吐、磁盘满、所有崩溃窗口、外部同时重建路由等未穷尽验证。
+
+
+## 1.0.1-Beta 状态迁移
+
+有效 v1 记录在写入 v2 前保存 state.v1.backup.json，不因格式升级 Flush。旧路由身份可唯一对应时补全身份；歧义记录保留并报告退化，等待核对。降级到不支持 v2 的旧程序前不可直接启动旧服务，应先核对路由属性并按部署备份安排恢复，避免被旧程序误判为记录损坏。

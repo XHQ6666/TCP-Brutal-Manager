@@ -5,7 +5,7 @@ project_root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$project_root"
 out=${1:-"$project_root/dist"}
 if [ "$#" -gt 0 ]; then shift; fi
-version=${VERSION:-1.0.0}
+version=${VERSION:-1.0.1-Beta}
 source_commit=${BUILD_COMMIT:-${GITHUB_SHA:-}}
 if [ -z "$source_commit" ]; then
   source_commit=$(git rev-parse HEAD 2>/dev/null || true)

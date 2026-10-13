@@ -40,7 +40,7 @@ Default configuration is `/etc/tcp-brutal-config/config.json`, state is `/var/li
 
 ## Behavior and validation
 
-Rules are ordered IPv4 first, then by normalized network address and CIDR length. Identical rules retain all sources; conflicting parameters for the same Prefix are isolated. Normal Apply preserves external rules and does not use destructive Flush to repair order. Ordinary routes are delegated to brutalctl; policy rules require a unique **exact** existing route.
+Rules are ordered IPv4 first, then by normalized network address and CIDR length. Identical rules retain all sources; conflicting parameters for the same Prefix are isolated. Normal Apply preserves external rules and does not use destructive Flush to repair order. Ordinary routes are delegated to brutalctl; policy rules maintain all existing routes fully contained in their CIDR scope. Set `route_strict: true` to match only exact prefixes. Missing routes report degradation while the Brutal rule remains maintained.
 
 Tests include unit/fake-controller integration, race checks and Linux Netlink tests. Linux amd64 live tests with TCP Brutal 2.0.1 covered DNS System/DoH/DoT/DoQ, rule updates, failure isolation, configuration reload, route/link repair, ownership, Flush and state recovery. The external-rule ordering fix has dedicated regressions and Linux CI coverage. Other architectures were cross-compiled, not live-kernel tested. Throughput, every crash point and concurrent external route mutations are not exhaustively verified; Netlink read/modify/write is not atomic.
 

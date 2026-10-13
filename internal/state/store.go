@@ -16,8 +16,10 @@ type Record struct {
 	Rule rules.Rule `json:"rule"`
 }
 type Attribute struct {
+	Unresolved     bool        `json:"unresolved,omitempty"`
 	Route          route.Route `json:"route"`
 	AddedAlgorithm bool        `json:"added_algorithm"`
+	Sources        []string    `json:"sources,omitempty"`
 	ChangedLock    bool        `json:"changed_lock"`
 }
 type Data struct {
@@ -59,15 +61,27 @@ func Load(dir string) (Data, bool, error) {
 	if hex.EncodeToString(sum[:]) != env.Checksum {
 		return d, marked, nil
 	}
-	if e = json.Unmarshal(env.Data, &d); e != nil || d.Version != 1 {
+	if e = json.Unmarshal(env.Data, &d); e != nil || (d.Version != 1 && d.Version != 2) {
 		return Data{Version: 1}, marked, nil
 	}
 	return d, false, nil
 }
 func Save(dir string, d Data) error {
-	d.Version = 1
+	d.Version = 2
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return e
+	}
+	if old, e := os.ReadFile(filepath.Join(dir, "state.json")); e == nil {
+		var env envelope
+		var previous Data
+		if json.Unmarshal(old, &env) == nil && json.Unmarshal(env.Data, &previous) == nil && previous.Version == 1 {
+			path := filepath.Join(dir, "state.v1.backup.json")
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				if err = atomic(dir, "state.v1.backup.json", old); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	b, e := json.Marshal(d)
 	if e != nil {

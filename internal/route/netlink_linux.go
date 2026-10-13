@@ -93,7 +93,41 @@ func decode(raw []byte) (Route, error) {
 	for len(algo) > 0 && algo[len(algo)-1] == 0 {
 		algo = algo[:len(algo)-1]
 	}
-	return Route{netip.PrefixFrom(ip, bits).Masked(), table, iface, index, raw[5], algo, u32(metrics[unix.RTAX_LOCK])&(1<<unix.RTAX_CC_ALGO) != 0, append([]byte{}, raw...)}, nil
+	hops := []Hop{}
+	mp := a[unix.RTA_MULTIPATH]
+	for len(mp) > 0 {
+		if len(mp) < 8 {
+			return Route{}, fmt.Errorf("short nexthop")
+		}
+		n := int(endian.Uint16(mp))
+		padded := (n + 3) &^ 3
+		if n < 8 || padded > len(mp) {
+			return Route{}, fmt.Errorf("invalid nexthop")
+		}
+		ha, err := attrs(mp[8:n])
+		if err != nil {
+			return Route{}, err
+		}
+		idx := u32(mp[4:8])
+		name := ""
+		if v, err := net.InterfaceByIndex(int(idx)); err == nil {
+			name = v.Name
+		}
+		gateway := ""
+		if ip, ok := netip.AddrFromSlice(ha[unix.RTA_GATEWAY]); ok {
+			gateway = ip.String()
+		}
+		hops = append(hops, Hop{Index: idx, Interface: name, Gateway: gateway, Weight: mp[3], Flags: mp[2]})
+		mp = mp[padded:]
+	}
+	gateway, prefsrc := "", ""
+	if ip, ok := netip.AddrFromSlice(a[unix.RTA_GATEWAY]); ok {
+		gateway = ip.String()
+	}
+	if ip, ok := netip.AddrFromSlice(a[unix.RTA_PREFSRC]); ok {
+		prefsrc = ip.String()
+	}
+	return Route{Gateway: gateway, PreferredSource: prefsrc, TOS: raw[3], Scope: raw[6], Prefix: netip.PrefixFrom(ip, bits).Masked(), Table: table, Interface: iface, Index: index, Protocol: raw[5], Algorithm: algo, Locked: u32(metrics[unix.RTAX_LOCK])&(1<<unix.RTAX_CC_ALGO) != 0, Priority: u32(a[unix.RTA_PRIORITY]), NextHops: hops, Raw: append([]byte{}, raw...)}, nil
 }
 func (Native) Read(ctx context.Context) ([]Route, error) {
 	out := []Route{}
@@ -118,7 +152,7 @@ func (Native) Read(ctx context.Context) ([]Route, error) {
 				if e != nil {
 					return nil, e
 				}
-				if len(r.Raw) >= 12 && r.Raw[7] == unix.RTN_UNICAST && r.Index != 0 {
+				if len(r.Raw) >= 12 && r.Raw[7] == unix.RTN_UNICAST && (r.Index != 0 || len(r.NextHops) > 0) {
 					out = append(out, r)
 				}
 			}
@@ -127,7 +161,7 @@ func (Native) Read(ctx context.Context) ([]Route, error) {
 	return out, nil
 }
 func sameIdentity(a, b Route) bool {
-	return a.Prefix == b.Prefix && a.Table == b.Table && a.Index == b.Index && a.Protocol == b.Protocol
+	return SameIdentity(a, b)
 }
 func (Native) Change(ctx context.Context, old Route, algo string, lock bool) error {
 	all, e := (Native{}).Read(ctx)

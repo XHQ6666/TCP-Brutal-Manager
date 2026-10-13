@@ -93,7 +93,7 @@ func TestRouteAttributeCleanupTracksRouteIdentity(t *testing.T) {
 	old := route.Route{Prefix: prefix, Table: 52, Interface: "ens3", Index: 2, Protocol: 3}
 	newRoute := route.Route{Prefix: prefix, Table: 52, Interface: "tailscale0", Index: 9, Protocol: 3}
 	a := state.Attribute{Route: old, AddedAlgorithm: true}
-	if routeAttributeNeeded(a, map[netip.Prefix]route.Route{prefix: newRoute}, nil, nil) {
+	if routeAttributeNeeded(a, map[netip.Prefix][]route.Route{prefix: {newRoute}}, nil, nil) {
 		t.Fatal("a different selected route must not retain old route attributes")
 	}
 }

@@ -31,7 +31,20 @@ type Manager struct {
 	Cache                        map[string][]netip.Addr
 	Before                       func(string) error
 }
+type RouteDetail struct {
+	BusinessPrefix netip.Prefix `json:"business_prefix"`
+	Route          route.Route  `json:"route"`
+	Strict         bool         `json:"route_strict"`
+	Action         string       `json:"action"`
+}
+type RouteSummary struct {
+	Matched   int `json:"matched"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+}
 type Plan struct {
+	RouteDetails []RouteDetail     `json:"route_details,omitempty"`
+	RouteSummary RouteSummary      `json:"route_summary"`
 	Desired      []rules.Rule      `json:"desired"`
 	Added        []rules.Rule      `json:"would_add"`
 	Updated      []rules.Rule      `json:"would_update"`
@@ -129,11 +142,18 @@ func mergeSources(a, b []string) []string {
 	return out
 }
 func sameRouteIdentity(a, b route.Route) bool {
-	return a.Prefix == b.Prefix && a.Table == b.Table && a.Index == b.Index && a.Protocol == b.Protocol
+	return route.SameIdentity(a, b)
 }
-func routeAttributeNeeded(a state.Attribute, selected map[netip.Prefix]route.Route, records []state.Record, failed map[string]bool) bool {
-	if current, ok := selected[a.Route.Prefix]; ok && sameRouteIdentity(a.Route, current) {
+func routeAttributeNeeded(a state.Attribute, selected map[netip.Prefix][]route.Route, records []state.Record, failed map[string]bool) bool {
+	if a.Unresolved {
 		return true
+	}
+	for _, list := range selected {
+		for _, current := range list {
+			if sameRouteIdentity(a.Route, current) {
+				return true
+			}
+		}
 	}
 	for _, record := range records {
 		if protected(record.Rule, failed) && (record.Rule.Table != nil || record.Rule.Interface != "") && route.Matches(a.Route, record.Rule) {
@@ -163,6 +183,30 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 	if e != nil {
 		return plan, 1, e
 	}
+	if data.Version == 1 {
+		for i := range data.Attributes {
+			a := &data.Attributes[i]
+			matches := []route.Route{}
+			for _, v := range all {
+				if v.Prefix == a.Route.Prefix && v.Table == a.Route.Table && v.Index == a.Route.Index && v.Protocol == a.Route.Protocol {
+					matches = append(matches, v)
+				}
+			}
+			if len(matches) == 1 {
+				modern := matches[0]
+				modern.Algorithm = a.Route.Algorithm
+				modern.Locked = a.Route.Locked
+				a.Route = modern
+			} else if len(matches) > 1 {
+				a.Unresolved = true
+			}
+		}
+	}
+	for _, a := range data.Attributes {
+		if a.Unresolved {
+			plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "state", Error: "legacy route identity requires review"})
+		}
+	}
 	owned := map[netip.Prefix]state.Record{}
 	for _, r := range data.Records {
 		owned[r.Rule.Prefix] = r
@@ -177,7 +221,7 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 		}
 	}
 	targets := map[netip.Prefix]rules.Rule{}
-	selected := map[netip.Prefix]route.Route{}
+	selected := map[netip.Prefix][]route.Route{}
 	issue := func(r rules.Rule, msg string) {
 		for _, s := range r.Sources {
 			failed[s] = true
@@ -207,13 +251,15 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 			for _, v := range all {
 				if route.Matches(v, r) {
 					matches = append(matches, v)
+				} else if route.InRange(v, r) && len(v.NextHops) > 0 && r.Interface != "" {
+					plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "route", Error: "multipath interfaces do not all match", Source: strings.Join(r.Sources, ",")})
+					plan.RouteDetails = append(plan.RouteDetails, RouteDetail{r.Prefix, v, r.RouteStrict, "skip: interface mismatch"})
 				}
 			}
-			if len(matches) != 1 {
-				issue(r, "policy route must uniquely match exact prefix/interface/table")
-				continue
+			if len(matches) == 0 {
+				plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "route", Error: "no matching policy route", Source: strings.Join(r.Sources, ",")})
 			}
-			selected[r.Prefix] = matches[0]
+			selected[r.Prefix] = matches
 			for _, v := range all {
 				if v.Prefix == r.Prefix && v.Protocol == 233 && v.Table == 254 {
 					managed := false
@@ -234,14 +280,30 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 				delete(selected, r.Prefix)
 				continue
 			}
-			if matches[0].Algorithm != "brutal" || matches[0].Locked != r.Lock {
-				plan.RouteRepair = append(plan.RouteRepair, matches[0])
+			for _, v := range matches {
+				if v.Algorithm != "brutal" || v.Locked != r.Lock {
+					plan.RouteRepair = append(plan.RouteRepair, v)
+				}
 			}
 		}
 		if c, ok := now[r.Prefix]; !ok || recovery || data.Recovery == "clearing" {
 			plan.Added = append(plan.Added, r)
 		} else if rec, ours := owned[r.Prefix]; !c.Matches(r) || (ours && !rec.Rule.Equal(r)) {
 			plan.Updated = append(plan.Updated, r)
+		}
+	}
+	// Resolve overlapping policies once per route, with the most specific policy first.
+	resolveSelections(desired, selected, failed)
+	plan.RouteRepair = nil
+	for _, r := range desired {
+		for _, v := range selected[r.Prefix] {
+			action := "unchanged"
+			if v.Algorithm != "brutal" || v.Locked != r.Lock {
+				action = "repair"
+				plan.RouteRepair = append(plan.RouteRepair, v)
+			}
+			plan.RouteDetails = append(plan.RouteDetails, RouteDetail{r.Prefix, v, r.RouteStrict, action})
+			plan.RouteSummary.Matched++
 		}
 	}
 	for _, rec := range data.Records {
@@ -348,7 +410,7 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 		if e != nil {
 			return plan, 1, fmt.Errorf("recovery route reread: %w", e)
 		}
-		selected = map[netip.Prefix]route.Route{}
+		selected = map[netip.Prefix][]route.Route{}
 		plan.RouteRepair = nil
 		for _, r := range desired {
 			if protected(r, failed) || (r.Table == nil && r.Interface == "") {
@@ -358,18 +420,20 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 			for _, v := range all {
 				if route.Matches(v, r) {
 					matches = append(matches, v)
+				} else if route.InRange(v, r) && len(v.NextHops) > 0 && r.Interface != "" {
+					plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "route", Error: "multipath interfaces do not all match", Source: strings.Join(r.Sources, ",")})
+					plan.RouteDetails = append(plan.RouteDetails, RouteDetail{r.Prefix, v, r.RouteStrict, "skip: interface mismatch"})
 				}
 			}
-			if len(matches) != 1 {
-				issue(r, "policy route no longer uniquely matches after recovery flush")
-				continue
-			}
-			selected[r.Prefix] = matches[0]
-			if matches[0].Algorithm != "brutal" || matches[0].Locked != r.Lock {
-				plan.RouteRepair = append(plan.RouteRepair, matches[0])
+			selected[r.Prefix] = matches
+			for _, v := range matches {
+				if v.Algorithm != "brutal" || v.Locked != r.Lock {
+					plan.RouteRepair = append(plan.RouteRepair, v)
+				}
 			}
 		}
 	}
+	resolveSelections(desired, selected, failed)
 	if e = state.Save(m.StateDir, data); e != nil {
 		return plan, 1, e
 	}
@@ -412,11 +476,25 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 			issue(r, "rule verification failed")
 			continue
 		}
-		if v, policy := selected[r.Prefix]; policy {
-			if v.Algorithm != "brutal" || v.Locked != r.Lock {
-				a := state.Attribute{Route: v, AddedAlgorithm: v.Algorithm != "brutal", ChangedLock: v.Locked != r.Lock}
+		routeOK := true
+		for _, v := range selected[r.Prefix] {
+			owner := r
+			for _, candidate := range desired {
+				if !protected(candidate, failed) && candidate.Prefix.Bits() > owner.Prefix.Bits() {
+					for _, cv := range selected[candidate.Prefix] {
+						if sameRouteIdentity(cv, v) {
+							owner = candidate
+						}
+					}
+				}
+			}
+			if owner.Prefix != r.Prefix {
+				continue
+			}
+			if v.Algorithm != "brutal" || v.Locked != owner.Lock {
+				a := state.Attribute{Sources: routeSources(v, desired, failed), Route: v, AddedAlgorithm: v.Algorithm != "brutal", ChangedLock: v.Locked != owner.Lock}
 				a.Route.Algorithm = "brutal"
-				a.Route.Locked = r.Lock
+				a.Route.Locked = owner.Lock
 				merged := false
 				for i := range data.Attributes {
 					prev := &data.Attributes[i]
@@ -434,13 +512,16 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 				if er = state.Save(m.StateDir, data); er != nil {
 					return plan, 1, er
 				}
-				if er = m.change(ctx, v, "brutal", r.Lock); er != nil {
-					issue(r, er.Error())
+				if er = m.change(ctx, v, "brutal", owner.Lock); er != nil {
+					plan.Issues = append(plan.Issues, config.Issue{Index: -1, Component: "route", Error: er.Error(), Source: strings.Join(r.Sources, ",")})
+					routeOK = false
+					plan.RouteSummary.Failed++
 					continue
 				}
 			}
+			plan.RouteSummary.Succeeded++
 		}
-		verified[r.Prefix] = true
+		verified[r.Prefix] = routeOK
 		_, wasOwned := owned[r.Prefix]
 		if wasOwned || additions[r.Prefix] {
 			owned[r.Prefix] = state.Record{Rule: r}
@@ -480,6 +561,7 @@ func (m *Manager) Sync(ctx context.Context, write, refresh bool) (Plan, int, err
 	remaining := []state.Attribute{}
 	for _, a := range data.Attributes {
 		if routeAttributeNeeded(a, selected, data.Records, failed) {
+			a.Sources = mergeSources(routeSources(a.Route, desired, failed), protectedSources(a.Sources, failed))
 			remaining = append(remaining, a)
 			continue
 		}
@@ -549,6 +631,9 @@ func (m *Manager) change(ctx context.Context, r route.Route, algo string, lock b
 	return fmt.Errorf("route verification failed")
 }
 func (m *Manager) cleanup(ctx context.Context, a state.Attribute) error {
+	if a.Unresolved {
+		return fmt.Errorf("legacy route identity requires review")
+	}
 	all, e := m.Routes.Read(ctx)
 	if e != nil {
 		return e
@@ -628,4 +713,32 @@ func (m *Manager) note(message string) error {
 		return m.Before(message)
 	}
 	return nil
+}
+
+func resolveSelections(desired []rules.Rule, selected map[netip.Prefix][]route.Route, failed map[string]bool) {
+	for _, r := range desired {
+		keep := []route.Route{}
+		for _, v := range selected[r.Prefix] {
+			winner := true
+			for _, other := range desired {
+				if other.Prefix.Bits() > r.Prefix.Bits() && !protected(other, failed) && (other.Table != nil || other.Interface != "") && route.Matches(v, other) {
+					winner = false
+					break
+				}
+			}
+			if winner {
+				keep = append(keep, v)
+			}
+		}
+		selected[r.Prefix] = keep
+	}
+}
+func routeSources(v route.Route, desired []rules.Rule, failed map[string]bool) []string {
+	out := []string{}
+	for _, r := range desired {
+		if !protected(r, failed) && (r.Table != nil || r.Interface != "") && route.Matches(v, r) {
+			out = mergeSources(out, r.Sources)
+		}
+	}
+	return out
 }

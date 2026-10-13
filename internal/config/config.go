@@ -41,14 +41,15 @@ type DNS struct {
 	Rules     []json.RawMessage `json:"rules"`
 }
 type Rule struct {
-	IP        string          `json:"ip,omitempty"`
-	Domain    string          `json:"domain,omitempty"`
-	Rate      json.RawMessage `json:"rate"`
-	CIDR      json.RawMessage `json:"cidr,omitempty"`
-	Lock      *bool           `json:"lock,omitempty"`
-	NoRoute   bool            `json:"noroute,omitempty"`
-	Table     *uint32         `json:"table,omitempty"`
-	Interface string          `json:"interface,omitempty"`
+	RouteStrict bool            `json:"route_strict,omitempty"`
+	IP          string          `json:"ip,omitempty"`
+	Domain      string          `json:"domain,omitempty"`
+	Rate        json.RawMessage `json:"rate"`
+	CIDR        json.RawMessage `json:"cidr,omitempty"`
+	Lock        *bool           `json:"lock,omitempty"`
+	NoRoute     bool            `json:"noroute,omitempty"`
+	Table       *uint32         `json:"table,omitempty"`
+	Interface   string          `json:"interface,omitempty"`
 }
 type Settings struct {
 	DNS struct {
