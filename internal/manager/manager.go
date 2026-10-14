@@ -57,7 +57,7 @@ type Plan struct {
 }
 
 func New(c *config.Config) *Manager {
-	return &Manager{c, dns.Engine{Config: c}, route.Native{}, brutal.Controller{Binary: "brutalctl", Timeout: c.Durations.Brutal}, "/proc/net/tcp_brutal/rules", "/var/lib/tcp-brutal-config", "/run/tcp-brutal-config.lock", map[string][]netip.Addr{}, nil}
+	return &Manager{c, dns.Engine{Config: c}, route.Native{}, brutal.Controller{Binary: "brutalctl", Timeout: c.Durations.Brutal}, "/proc/net/tcp_brutal/rules", "/var/lib/tcp-brutal-manager", "/run/tcp-brutal-manager.lock", map[string][]netip.Addr{}, nil}
 }
 func (m *Manager) desired(ctx context.Context, refresh bool) ([]rules.Rule, map[string]bool, []config.Issue) {
 	candidate := []rules.Rule{}

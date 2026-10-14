@@ -19,21 +19,21 @@ import (
 	"time"
 )
 
-var version = "1.0.1-Beta"
+var version = "1.0.1"
 var commit = "dev"
 var buildTime = "unknown"
 
 func main() { os.Exit(execute(os.Args[1:])) }
 func help(command string) {
 	p := filepath.Base(os.Args[0])
-	fmt.Printf("Usage: %s <command> [options]\n\nCommands:\n  run      Continuously maintain DNS, rules and policy routes\n  apply    Synchronize managed rules\n  check    Validate configuration and inspect differences\n  diff     Show differences and skipped rules\n  list     Show current kernel rules\n  status   Show configuration and synchronization status\n  flush    Clear ALL Brutal rules and matching managed route attributes\n  version  Show version and build information\n  help     Show help for a command\n\nOptions:\n  -c, --config <path>  Default /etc/tcp-brutal-config/config.json\n  -h, --help           Show help\n  -v, --version        Show version\n  -n, --dry-run        apply/flush only; no system or state writes\n\nRun DNS query interval: JSON settings.dns.query_interval (default 60s).\nRun shutdown preserves rules. Stop run BEFORE flush to keep rules cleared.\n", p)
+	fmt.Printf("Usage: %s <command> [options]\n\nCommands:\n  run      Continuously maintain DNS, rules and policy routes\n  apply    Synchronize managed rules\n  check    Validate configuration and inspect differences\n  diff     Show differences and skipped rules\n  list     Show current kernel rules\n  status   Show configuration and synchronization status\n  flush    Clear ALL Brutal rules and matching managed route attributes\n  version  Show version and build information\n  help     Show help for a command\n\nOptions:\n  -c, --config <path>  Default /etc/tcp-brutal-manager/config.json\n  -h, --help           Show help\n  -v, --version        Show version\n  -n, --dry-run        apply/flush only; no system or state writes\n\nRun DNS query interval: JSON settings.dns.query_interval (default 60s).\nRun shutdown preserves rules. Stop run BEFORE flush to keep rules cleared.\n", p)
 	if command != "" {
 		fmt.Printf("\nCommand: %s\n", command)
 	}
 }
 func execute(args []string) int {
 	command := ""
-	path := "/etc/tcp-brutal-config/config.json"
+	path := "/etc/tcp-brutal-manager/config.json"
 	dry := false
 	configSeen := false
 	for i := 0; i < len(args); i++ {
@@ -195,7 +195,7 @@ func (l *Logger) Close() error {
 }
 func run(ctx context.Context, m *manager.Manager, l *Logger) int {
 	m.Before = func(msg string) error { return l.Write("INFO", "apply", msg) }
-	release, e := state.Lock("/run/tcp-brutal-config-run.lock")
+	release, e := state.Lock("/run/tcp-brutal-manager-run.lock")
 	if e != nil {
 		return fail(e, 1)
 	}

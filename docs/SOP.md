@@ -1,4 +1,4 @@
-# 运行维护指南（1.0.1-Beta）
+# 运行维护指南（1.0.1）
 
 本指南描述当前实现。配置字段见 [配置参考](CONFIGURATION.md)，命令和退出码见 [CLI 参考](CLI.md)。设计草案 PLAN.md 为历史资料，发生差异时以正式用户文档及实际实现为准。
 
@@ -9,12 +9,12 @@
 校验下载包 SHA256SUMS，解压，在包目录执行：
 
 ```sh
-install -m 0755 tcp-brutal-config /usr/local/bin/tcp-brutal-config
-install -d -m 0755 /etc/tcp-brutal-config
+install -m 0755 tcp-brutal-manager /usr/local/bin/tcp-brutal-manager
+install -d -m 0755 /etc/tcp-brutal-manager
 # 首次配置；若已有配置，先备份并编辑，避免覆盖。
-install -m 0644 config.example.json /etc/tcp-brutal-config/config.json
-manager_bin=/usr/local/bin/tcp-brutal-config
-manager_config=/etc/tcp-brutal-config/config.json
+install -m 0644 config.example.json /etc/tcp-brutal-manager/config.json
+manager_bin=/usr/local/bin/tcp-brutal-manager
+manager_config=/etc/tcp-brutal-manager/config.json
 "$manager_bin" version
 "$manager_bin" list
 "$manager_bin" check -c "$manager_config"
@@ -45,13 +45,13 @@ Run 可前台运行，SIGINT/SIGTERM 保留现有规则：
 
 ## systemd
 
-包内提供模板，默认程序位置 /usr/local/bin/tcp-brutal-config。先核对 ExecStart 的真实程序和配置路径，再安装：
+包内提供模板，默认程序位置 /usr/local/bin/tcp-brutal-manager。先核对 ExecStart 的真实程序和配置路径，再安装：
 
 ```sh
-install -m 0644 tcp-brutal-config.service /etc/systemd/system/tcp-brutal-config.service
+install -m 0644 tcp-brutal-manager.service /etc/systemd/system/tcp-brutal-manager.service
 systemctl daemon-reload
-systemctl enable --now tcp-brutal-config.service
-systemctl status tcp-brutal-config.service
+systemctl enable --now tcp-brutal-manager.service
+systemctl status tcp-brutal-manager.service
 ```
 
 使用 Tailscale 策略路由时可添加 After=tailscaled.service 的 drop-in，但接口暂不可用仍需核对日志。Restart=on-failure；Run 的正常信号退出保留规则。已在 Linux amd64 测试环境验证服务启动、自启及定时维护；安装路径仍需按实际环境核对。
@@ -73,7 +73,7 @@ Tailscale 常在 table 52 建立节点 /32 路由。配置一条大网段 Brutal
 要保持清空先停止 Run 或服务，再预览、执行 Flush：
 
 ```sh
-systemctl stop tcp-brutal-config.service # 仅在已安装服务时使用
+systemctl stop tcp-brutal-manager.service # 仅在已安装服务时使用
 "$manager_bin" flush -n
 "$manager_bin" flush
 "$manager_bin" list
@@ -85,7 +85,7 @@ Flush 委托 brutalctl 清空全部规则及其普通路由清理范围，包含
 
 ## 管理记录异常恢复
 
-状态目录 /var/lib/tcp-brutal-config 中 state.json 包含校验和、已成功规则与来源、Go 属性、待完成意图/恢复阶段；initialized 用于区分曾经初始化与首次安装。
+状态目录 /var/lib/tcp-brutal-manager 中 state.json 包含校验和、已成功规则与来源、Go 属性、待完成意图/恢复阶段；initialized 用于区分曾经初始化与首次安装。
 
 | 状态 | 行为 |
 |---|---|
@@ -106,6 +106,11 @@ check=3 先看差异，7 先看 issues 与 would_reorder。普通配置/模块/�
 当前实测为 Linux amd64、TCP Brutal 2.0.1，覆盖公共 DNS 四种解析方式及规则/路由/监听/日志/恢复主要行为。其他架构仅交叉编译；吞吐、磁盘满、所有崩溃窗口、外部同时重建路由等未穷尽验证。
 
 
-## 1.0.1-Beta 状态迁移
+## 1.0.1 状态迁移
 
 有效 v1 记录在写入 v2 前保存 state.v1.backup.json，不因格式升级 Flush。旧路由身份可唯一对应时补全身份；歧义记录保留并报告退化，等待核对。降级到不支持 v2 的旧程序前不可直接启动旧服务，应先核对路由属性并按部署备份安排恢复，避免被旧程序误判为记录损坏。
+
+
+## 从旧命名升级
+
+先停止旧服务并备份配置、状态和路由。将管理记录完整复制到新状态目录（包括 state.json、initialized 和迁移备份）。首次启动使用 -c 指向原配置文件，保持来源路径不变；不要同时启动两个名称的服务。不要只换二进制后用空的新状态目录启动，否则已有规则会被视为外部规则。配置路径改名需要同时迁移 records/pending 中的来源及 attributes 中的来源，并重新计算记录校验和；在完成核对前保留原路径。

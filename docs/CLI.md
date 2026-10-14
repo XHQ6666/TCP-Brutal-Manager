@@ -3,8 +3,8 @@
 文档使用实际文件名变量，Help 的程序名来自调用路径：
 
 ```sh
-manager_bin=/usr/local/bin/tcp-brutal-config
-manager_config=/etc/tcp-brutal-config/config.json
+manager_bin=/usr/local/bin/tcp-brutal-manager
+manager_config=/etc/tcp-brutal-manager/config.json
 ```
 
 ## 命令
@@ -21,7 +21,7 @@ manager_config=/etc/tcp-brutal-config/config.json
 | run | 启动立即维护，监听配置及 Route/Link，独立定时 DNS 解析与规则核对；单实例。 |
 | flush | 清空全部 Brutal 规则，清理匹配的 Go 路由属性；不是只清空自己的规则。 |
 
--c/--config 指定配置，支持 --config=path；默认 /etc/tcp-brutal-config/config.json。-n/--dry-run 仅适用于 apply/flush，禁止用于 run。Dry-run 不写规则、路由或管理记录；文件日志仍遵守配置。纯 Flush 使用默认维护参数和状态目录，不需要业务 rules。
+-c/--config 指定配置，支持 --config=path；默认 /etc/tcp-brutal-manager/config.json。-n/--dry-run 仅适用于 apply/flush，禁止用于 run。Dry-run 不写规则、路由或管理记录；文件日志仍遵守配置。纯 Flush 使用默认维护参数和状态目录，不需要业务 rules。
 
 ## 示例
 

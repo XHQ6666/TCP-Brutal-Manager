@@ -5,7 +5,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/tcp-brutal-config run -c /etc/tcp-brutal-config/config.json
+ExecStart=/usr/local/bin/tcp-brutal-manager run -c /etc/tcp-brutal-manager/config.json
 Restart=on-failure
 RestartSec=5s
 

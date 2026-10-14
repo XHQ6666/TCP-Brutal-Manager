@@ -145,7 +145,7 @@ func Parse(b []byte, path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid log level")
 	}
 	if c.Log.Path == "" {
-		c.Log.Path = "/var/log/tcp-brutal-config.log"
+		c.Log.Path = "/var/log/tcp-brutal-manager.log"
 	}
 	if !filepath.IsAbs(c.Log.Path) {
 		c.Log.Path = filepath.Join(filepath.Dir(c.Path), c.Log.Path)

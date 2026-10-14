@@ -1,4 +1,6 @@
-# 1.0.1-Beta (Pre-Release)
+# 1.0.1 (Pre-Release)
+
+The binary, service, default configuration/state/log paths and documentation now consistently use tcp-brutal-manager.
 
 Policy routes now default to CIDR containment: one Brutal group can serve all matching existing routes in the configured table/interface, including more specific node routes. No aggregate route or per-node Brutal group is created.
 

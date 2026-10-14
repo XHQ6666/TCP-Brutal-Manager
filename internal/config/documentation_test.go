@@ -25,7 +25,7 @@ func TestPublishedConfigurationExamples(t *testing.T) {
 	}
 	for name, raw := range map[string][]byte{"reference": []byte(example), "package": sample} {
 		t.Run(name, func(t *testing.T) {
-			c, err := Parse(raw, "/etc/tcp-brutal-config/config.json")
+			c, err := Parse(raw, "/etc/tcp-brutal-manager/config.json")
 			if err != nil {
 				t.Fatal(err)
 			}

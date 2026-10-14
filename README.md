@@ -8,14 +8,14 @@ TCP Brutal Manager **1.0.0** manages Linux TCP Brutal rules from a JSON configur
 - Official `brutalctl`, iproute2 and permissions to read or modify rules/routes as appropriate.
 - For source builds, the Go version specified in `go.mod`.
 
-Linux packages are provided for amd64, arm64, 386, armv5, armv6 and armv7. Each archive contains the binary `tcp-brutal-config`, example configuration, systemd template, release notes and user documentation. The CLI help name follows the executable's invoked filename.
+Linux packages are provided for amd64, arm64, 386, armv5, armv6 and armv7. Each archive contains the binary `tcp-brutal-manager`, example configuration, systemd template, release notes and user documentation. The CLI help name follows the executable's invoked filename.
 
 ## Quick start
 
 Verify the archive against `SHA256SUMS`, extract it, and edit `config.example.json` with your own destinations and rates. The example destination is a documentation address, not a production endpoint.
 
 ```sh
-manager_bin=./tcp-brutal-config
+manager_bin=./tcp-brutal-manager
 manager_config=./config.example.json
 "$manager_bin" version
 "$manager_bin" check -c "$manager_config"
@@ -36,7 +36,7 @@ manager_config=./config.example.json
 - [Operations guide](docs/SOP.md): installation, Tailscale, continuous maintenance, Flush and recovery.
 - [Release notes](RELEASE_NOTES.md): changes, validation and limits.
 
-Default configuration is `/etc/tcp-brutal-config/config.json`, state is `/var/lib/tcp-brutal-config`, and the file log is `/var/log/tcp-brutal-config.log`. Keep a stable configuration path: source identity includes that path.
+Default configuration is `/etc/tcp-brutal-manager/config.json`, state is `/var/lib/tcp-brutal-manager`, and the file log is `/var/log/tcp-brutal-manager.log`. Keep a stable configuration path: source identity includes that path.
 
 ## Behavior and validation
 

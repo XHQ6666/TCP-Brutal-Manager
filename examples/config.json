@@ -2,7 +2,7 @@
   "log": {
     "enabled": true,
     "level": "default",
-    "path": "/var/log/tcp-brutal-config.log"
+    "path": "/var/log/tcp-brutal-manager.log"
   },
   "rules": [
     {

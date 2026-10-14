@@ -5,7 +5,7 @@ project_root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$project_root"
 out=${1:-"$project_root/dist"}
 if [ "$#" -gt 0 ]; then shift; fi
-version=${VERSION:-1.0.1-Beta}
+version=${VERSION:-1.0.1}
 source_commit=${BUILD_COMMIT:-${GITHUB_SHA:-}}
 if [ -z "$source_commit" ]; then
   source_commit=$(git rev-parse HEAD 2>/dev/null || true)
@@ -38,10 +38,10 @@ for target in "$@"; do
   name="tcp-brutal-manager-$archive_version-linux-$target"
   package_dir="$out/$name"
   mkdir -p "$package_dir"
-  CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" GOARM="$goarm" go build -trimpath -ldflags "$flags" -o "$package_dir/tcp-brutal-config" ./cmd/tcp-brutal-config
+  CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" GOARM="$goarm" go build -trimpath -ldflags "$flags" -o "$package_dir/tcp-brutal-manager" ./cmd/tcp-brutal-manager
   cp README.md "$package_dir/README.md"
   cp examples/config.json "$package_dir/config.example.json"
-  cp systemd/tcp-brutal-config.service "$package_dir/tcp-brutal-config.service"
+  cp systemd/tcp-brutal-manager.service "$package_dir/tcp-brutal-manager.service"
   cp RELEASE_NOTES.md "$package_dir/RELEASE_NOTES.md"
   mkdir -p "$package_dir/docs"
   cp docs/CONFIGURATION.md docs/CLI.md docs/SOP.md "$package_dir/docs/"

@@ -9,7 +9,7 @@
   "log": {
     "enabled": true,
     "level": "default",
-    "path": "/var/log/tcp-brutal-config.log"
+    "path": "/var/log/tcp-brutal-manager.log"
   },
   "dns": {
     "resolvers": [
@@ -88,4 +88,4 @@ dns.rules 的 domain 支持字符串或数组，resolver 引用 name，fallback 
 
 上面的 Settings 示例列出全部默认值。Settings / 模块省略、null、空对象均使用默认值；单个 Duration 缺省、null 或空白使用默认值，非空值必须为正的 Go Duration 字符串。重载从默认值重新覆盖，删除字段恢复默认值。query_interval 是定时 DNS 解析周期，不是总同步周期，也不按 DNS TTL 自动调度。
 
-log.enabled 默认 true；关闭文件日志用 false。level 支持 default、debug、warning、error，没有 none。default/debug 允许现有 INFO 日志，warning 过滤 INFO，error 仅记录 ERROR；debug 当前不增加独立的逐包 DNS 追踪。path 默认 /var/log/tcp-brutal-config.log；相对路径以配置目录为基准。日志目录需要事先存在；文件追加写入，程序不负责轮转。
+log.enabled 默认 true；关闭文件日志用 false。level 支持 default、debug、warning、error，没有 none。default/debug 允许现有 INFO 日志，warning 过滤 INFO，error 仅记录 ERROR；debug 当前不增加独立的逐包 DNS 追踪。path 默认 /var/log/tcp-brutal-manager.log；相对路径以配置目录为基准。日志目录需要事先存在；文件追加写入，程序不负责轮转。
