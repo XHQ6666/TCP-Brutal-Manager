@@ -1,67 +1,71 @@
-# 在线安装
+# 一键安装
 
-根目录 install.sh 从 GitHub Releases 下载，默认最新稳定版；支持 install、update、check、--beta 和 --version。当前稳定版为 1.0.1。架构范围为 Linux amd64、arm64、386、armv5、armv6、armv7。
+在目标 Linux 主机以 root 运行 install.sh，无参数就是安装或更新最新正式版。
 
-## 私有仓库
+## 一条命令
 
-仓库目前为私有，匿名 curl 不能读取安装脚本或发布附件。下载和安装都需要具备本仓库读取权限；不要把令牌写进命令参数、脚本或配置。
-
-在目标 Linux 主机用已登录的 GitHub CLI 取脚本：
+在目标 Linux 主机的 root 终端执行：
 
 ```bash
-gh api --method GET 'repos/XHQ6666/TCP-Brutal-Manager/contents/install.sh?ref=main' \
-  -H 'Accept: application/vnd.github.raw+json' > install.sh
-bash install.sh --help
+bash <(curl -fsSL https://raw.githubusercontent.com/XHQ6666/TCP-Brutal-Manager/main/install.sh)
 ```
 
-安装器本身不依赖 gh：有 GH_TOKEN/GITHUB_TOKEN 时使用环境变量，否则可复用已登录 gh 的令牌。使用 sudo 时需将认证传递给 root；可以在本地 shell 安全读取环境变量，不将令牌值写进历史：
+再次运行同一命令即可升级，保留已有配置。无需 GitHub CLI 或令牌。
+
+指定版本或查询版本：
 
 ```bash
-read -rsp 'GitHub token: ' GH_TOKEN; echo
-export GH_TOKEN
-sudo --preserve-env=GH_TOKEN bash install.sh install --config /path/to/config.json
-unset GH_TOKEN
+bash <(curl -fsSL https://raw.githubusercontent.com/XHQ6666/TCP-Brutal-Manager/main/install.sh) --version 1.0.1
+bash <(curl -fsSL https://raw.githubusercontent.com/XHQ6666/TCP-Brutal-Manager/main/install.sh) check
 ```
 
-已经以 root 登录 gh 的用户也可直接执行 bash install.sh install。仓库若未来公开，可匿名 HTTPS 下载；本脚本不会改变仓库可见性。
-
-## 安装、升级和查询
-
-首次安装必须提供自己的配置，不会用示例规则启动：
+也可先下载再查看和执行：
 
 ```bash
-sudo --preserve-env=GH_TOKEN bash install.sh install --config /path/to/config.json
+curl -fsSL https://raw.githubusercontent.com/XHQ6666/TCP-Brutal-Manager/main/install.sh -o install.sh
+bash install.sh
 ```
 
-升级保留已有配置和管理记录，禁止 --config 覆盖：
+GitHub API 限流时可以选择提供 GH_TOKEN/GITHUB_TOKEN；不要把令牌放进 URL 或命令参数。安装器不会要求为公开仓库登录账号。
+
+## 默认流程
+
+1. 检测 Linux、systemd 和 CPU 架构，按需准备 Python 3、util-linux、CA 证书。
+2. 下载最新版与校验文件，核对 SHA256 和程序版本。
+3. 安装程序和 systemd 服务。
+4. 已有配置：原样保留业务规则、DNS 和 settings，验证后启动服务。
+5. 首次没有配置：只放置 config.example.json，不启动服务、不应用示例规则。
+
+首次安装完成后，填写自己的配置再启动：
 
 ```bash
-sudo --preserve-env=GH_TOKEN bash install.sh update
-bash install.sh check
-sudo --preserve-env=GH_TOKEN bash install.sh update --version 1.0.1
-sudo --preserve-env=GH_TOKEN bash install.sh update --beta
+cp /etc/tcp-brutal-manager/config.example.json /etc/tcp-brutal-manager/config.json
+# 编辑 config.json，填写自己的目标和速率
+systemctl enable --now tcp-brutal-manager
 ```
 
-默认稳定通道不选预发布。--beta 选择最新兼容发布（可含正式版），--version 明确安装版本，不与 --beta 同用。低于 1.0.1 的旧名称包不由此脚本安装。check 不需要 root、不修改配置或服务。安装与升级需要 root、systemd、Python 3、flock、已加载的 TCP Brutal 模块及 brutalctl；不会自动安装模块或更改默认拥塞算法。
+TCP Brutal 内核模块和 brutalctl 由[官方项目](https://github.com/HyNetworks/tcp-brutal)安装；本脚本不自动安装或切换内核模块。已有配置准备启动时会检查它们是否可用。新装无配置时可先安装 Manager，后准备内核模块。
 
-## 本地包
-
-将发布包与同一版本的 SHA256SUMS 放在同一目录：
+## 可选用法
 
 ```bash
-sudo bash install.sh --archive /path/tcp-brutal-manager-1.0.1-linux-amd64.tar.gz
+bash install.sh update                  # 与无参数执行相同，保留配置升级
+bash install.sh --version 1.0.1         # 指定版本
+bash install.sh --beta                  # 最新兼容版本，包括预发布
+bash install.sh check                   # 只查版本，不修改系统
+bash install.sh --config /path/config.json  # 首次直接导入配置并启动
+bash install.sh --no-start              # 安装但不启动
+bash install.sh --archive /path/tcp-brutal-manager-1.0.1-linux-amd64.tar.gz
 ```
 
-会识别包名中的版本并校验目标架构。首次离线安装同时加 --config。--no-start 安装并预检后保持停止；旧活动目录暂保留，需手动启动核对后清理。
+本地包旁边需有同一版本的 SHA256SUMS。默认不选预发布；--beta 不与 --version/--archive 同用。只支持已发布的 amd64、arm64、386、armv5、armv6、armv7，不声称支持 OpenRC、deb/rpm 或其他 CPU 架构。
 
-## 行为与边界
+## 路径和升级
 
-- 下载重试、HTTPS、SHA256 和程序版本核对完成后才安装；跨域附件重定向不携带 GitHub 认证头。
-- 安装到 /usr/local/tcp-brutal-manager，服务为 tcp-brutal-manager.service，配置 /etc/tcp-brutal-manager/config.json，状态 /var/lib/tcp-brutal-manager。
-- 配置和状态数据备份在状态目录 deploy-backups；不备份旧二进制。新旧服务不会同时启动。
-- 旧名称迁移保留业务规则、DNS 和 settings；旧默认日志路径改为新名称，来源路径同步迁移并重算校验。新旧状态同时存在时拒绝猜测归属。
-- 状态损坏、恢复未完成、预检要求 Flush 或有局部错误时拒绝部署。预检失败后服务可能保持停止，需要核对原因再启动；不会自动回滚已发生的内核运行状态。
-- 启动及 check 一致性通过后，才删除旧名称程序、服务和旧活动目录。其他安装目录不擅自清理。
-- 首次启动会应用配置并修改 Brutal 规则及路由属性；安装器不执行 Flush。
+程序 /usr/local/tcp-brutal-manager/tcp-brutal-manager，通过 /usr/local/bin/tcp-brutal-manager 提供命令入口；服务 tcp-brutal-manager.service；配置 /etc/tcp-brutal-manager/config.json；状态 /var/lib/tcp-brutal-manager。
 
-参考官方项目的安装接口与行为：[Xray-install](https://github.com/XTLS/Xray-install)、[sing-box 安装说明](https://sing-box.sagernet.org/installation/package-manager/)。本项目只提供已有六种架构的 tar.gz 包，不声称支持 deb/rpm 或 OpenRC。
+旧名称迁移会同步管理来源路径和校验，旧默认日志路径改为新名称，不拆分 Brutal 规则，不 Flush。配置和状态数据快照放在状态目录 deploy-backups，成功后删除旧名称程序、服务及旧活动目录，不保留旧二进制。新旧状态同时存在、状态损坏、恢复未完成或预检发现错误/Flush 计划时停止，不猜测归属。失败后服务可能保持停止，应核对原因再启动；不会自动回滚已发生的内核状态。
+
+## 参考
+
+入口与默认安装体验参考 [3x-ui](https://github.com/MHSanaei/3x-ui/blob/master/install.sh) 和 [Hysteria](https://v2.hysteria.network/docs/getting-started/Installation/)。主流脚本也可能很长；这里简化的是用户操作，保留必要的下载校验、配置保护和迁移处理。

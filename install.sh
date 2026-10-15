@@ -15,25 +15,21 @@ STATE=/var/lib/tcp-brutal-manager
 SERVICE=tcp-brutal-manager.service
 usage() {
   cat <<'HELP'
-TCP Brutal Manager Linux 部署脚本
-用法：
-  sudo bash install.sh --config /path/config.json
-  sudo bash install.sh --archive /path/package.tar.gz
-选项：
-  install / update      安装或升级（默认 install）
-  check                 仅查询已装版本与目标版本，不改系统
-  --beta                使用最新兼容版本（包括 Pre-Release）
-  --version VERSION     指定发布版本；省略时使用最新兼容稳定版
-  --archive FILE       使用本地发布包；同目录必须有 SHA256SUMS
-  --config FILE        首次安装导入配置；已有配置时拒绝覆盖
-  --no-start           安装后不启动，仍完成配置与规则只读预检
-  -h, --help           显示帮助
+TCP Brutal Manager 安装脚本
 
-在线安装通过 HTTPS API 下载，无需 gh。私有仓库使用 GH_TOKEN/GITHUB_TOKEN，
-或复用已登录 gh 的令牌。sudo 时可使用 sudo --preserve-env=GH_TOKEN。
-私有仓库需要具备本仓库读取权限；离线安装不需要认证。不会安装 TCP Brutal 内核模块，不执行 Flush。
-规则/DNS/settings 保留；旧默认日志路径迁移为新名称。旧版二进制成功后删除。
-仅配置和管理记录保留数据备份；未完成核对前不会清理旧活动目录。
+直接运行：安装最新正式版；已有配置自动保留。
+首次没有配置：安装程序、服务和配置模板，不启动、不修改网络规则。
+
+  bash install.sh                  安装 / 更新
+  bash install.sh --version 1.0.1  指定版本
+  bash install.sh --beta           最新版（含预发布）
+  bash install.sh check            查询版本
+  bash install.sh --help           帮助
+
+可选：--config FILE 首次导入配置，--archive FILE 本地包，--no-start 不启动。
+自动准备基础依赖；不自动安装 TCP Brutal 内核模块。
+私有仓库支持 GH_TOKEN/GITHUB_TOKEN，或复用已登录 gh；不需要预装 gh。
+升级保留配置和管理记录；不执行 Flush。
 HELP
 }
 while (($#)); do
@@ -48,6 +44,28 @@ while (($#)); do
 done
 [[ -z $VERSION || $VERSION =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || { echo '版本格式错误' >&2; exit 2; }
 ((BETA==0)) || [[ -z $VERSION && -z $ARCHIVE ]] || { echo '--beta 不能与 --version/--archive 同用' >&2; exit 2; }
+[[ $ACTION == check || ( $(uname -s) == Linux && $EUID == 0 ) ]] || { echo '请在目标 Linux 主机以 root 执行。' >&2; exit 1; }
+if ! command -v python3 >/dev/null || { [[ $ACTION != check ]] && ! command -v flock >/dev/null; }; then
+  [[ $ACTION != check ]] || { echo '版本查询需要 python3。' >&2; exit 1; }
+  echo '正在准备基础依赖…'
+  if command -v apt-get >/dev/null; then
+    apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y python3 util-linux ca-certificates
+  elif command -v dnf >/dev/null; then
+    dnf install -y python3 util-linux ca-certificates
+  elif command -v yum >/dev/null; then
+    yum install -y python3 util-linux ca-certificates
+  elif command -v zypper >/dev/null; then
+    zypper --non-interactive install python3 util-linux ca-certificates
+  elif command -v pacman >/dev/null; then
+    pacman -S --needed --noconfirm python util-linux ca-certificates
+  else
+    echo '请先安装 python3、util-linux、ca-certificates。' >&2; exit 1
+  fi
+fi
+if [[ $ACTION != check ]]; then
+ for cmd in systemctl install flock mktemp; do command -v "$cmd" >/dev/null || { echo "缺少依赖：$cmd" >&2; exit 1; }; done
+ [[ -d /run/systemd/system ]] || { echo '需要 systemd 系统。' >&2; exit 1; }
+fi
 if [[ -n $ARCHIVE && -z $VERSION ]]; then
   VERSION=$(python3 - "$ARCHIVE" <<'INFER_PY'
 import pathlib,re,sys
@@ -56,14 +74,6 @@ if not m:raise SystemExit('无法从本地发布包识别版本，请指定 --ve
 print(m[1])
 INFER_PY
 )
-fi
-[[ $ACTION == check || ( $(uname -s) == Linux && $EUID == 0 ) ]] || { echo '请在目标 Linux 主机以 root 执行。' >&2; exit 1; }
-command -v python3 >/dev/null || { echo '缺少依赖：python3' >&2; exit 1; }
-if [[ $ACTION != check ]]; then
- for cmd in systemctl install flock mktemp; do command -v "$cmd" >/dev/null || { echo "缺少依赖：$cmd" >&2; exit 1; }; done
- command -v brutalctl >/dev/null || { echo '未找到 brutalctl。' >&2; exit 1; }
- [[ -r /proc/net/tcp_brutal/rules ]] || { echo 'TCP Brutal 模块不可用。' >&2; exit 1; }
- [[ -d /run/systemd/system ]] || { echo '需要 systemd 系统。' >&2; exit 1; }
 fi
 case $(uname -m) in
   x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; i?86) ARCH=386;;
@@ -167,6 +177,17 @@ v=pathlib.Path(sys.argv[1]).read_text().strip()
 if not v.startswith(sys.argv[2]+' commit='):raise SystemExit('程序版本不符')
 print(v)
 PY
+CONFIG_READY=1
+if [[ ! -f $CONFIG && ! -f /etc/tcp-brutal-config/config.json && -z $INPUT_CONFIG ]]; then
+  if [[ -e $STATE/initialized || -e $STATE/state.json || -e /var/lib/tcp-brutal-config/initialized || -e /var/lib/tcp-brutal-config/state.json ]]; then
+    echo '存在管理记录但配置缺失，请恢复配置后重试。' >&2; exit 1
+  fi
+  CONFIG_READY=0
+  START=0
+fi
+if ((CONFIG_READY)); then
+ command -v brutalctl >/dev/null || { echo '请先安装官方 TCP Brutal（含 brutalctl）：https://github.com/HyNetworks/tcp-brutal' >&2; exit 1; }
+ [[ -r /proc/net/tcp_brutal/rules ]] || { echo '请先加载 TCP Brutal 内核模块（modprobe brutal）。' >&2; exit 1; }
 # Validate source configuration and state before stopping services.
 python3 - "$INPUT_CONFIG" <<'PY'
 import pathlib,json,hashlib,sys
@@ -236,9 +257,13 @@ if int(sys.argv[2]) not in (0,3):raise SystemExit('配置预检未通过；配�
 p=json.loads(pathlib.Path(sys.argv[1]).read_text())
 if p.get('would_flush') or p.get('issues'):raise SystemExit('拒绝会 Flush 或存在错误的部署')
 PY
+fi
 install -d -m 0755 "$PREFIX"
 install -m 0755 "$WORK/binary" "$PREFIX/tcp-brutal-manager.next"
 mv -f "$PREFIX/tcp-brutal-manager.next" "$PREFIX/tcp-brutal-manager"
+if [[ ! -e /usr/local/bin/tcp-brutal-manager || -L /usr/local/bin/tcp-brutal-manager ]]; then
+  ln -sfn "$PREFIX/tcp-brutal-manager" /usr/local/bin/tcp-brutal-manager
+fi
 cat > /etc/systemd/system/tcp-brutal-manager.service <<'UNIT'
 [Unit]
 Description=TCP Brutal Manager
@@ -254,6 +279,25 @@ WantedBy=multi-user.target
 UNIT
 chmod 0644 /etc/systemd/system/tcp-brutal-manager.service
 systemctl daemon-reload
+if ((CONFIG_READY==0)); then
+  install -d -m 0755 /etc/tcp-brutal-manager
+  if [[ ! -e /etc/tcp-brutal-manager/config.example.json ]]; then
+    cat > /etc/tcp-brutal-manager/config.example.json <<'EXAMPLE'
+{
+  "rules": [
+    { "ip": "192.0.2.1", "cidr": 32, "rate": 200 }
+  ],
+  "settings": {}
+}
+EXAMPLE
+    chmod 0600 /etc/tcp-brutal-manager/config.example.json
+  fi
+  echo '安装完成，示例规则未应用。'
+  echo '1. 将 config.example.json 复制为 /etc/tcp-brutal-manager/config.json 并填写自己的规则。'
+  echo '2. 安装并加载官方 TCP Brutal 模块（含 brutalctl）。'
+  echo '3. 执行：systemctl enable --now tcp-brutal-manager'
+  exit 0
+fi
 if ((START)); then
   systemctl enable --now "$SERVICE"
   READY=0

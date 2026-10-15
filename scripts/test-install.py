@@ -32,6 +32,20 @@ class InstallerTests(unittest.TestCase):
         for args in [['--unknown'], ['--version'], ['--beta', '--version', '1.0.1'], ['install', 'update']]:
             self.assertEqual(subprocess.run(['bash', str(SCRIPT)] + args, capture_output=True).returncode, 2)
 
+    def test_fresh_install_only_creates_example(self):
+        start = TEXT.index('if ((CONFIG_READY==0)); then')
+        end = TEXT.index('if ((START)); then', start)
+        block = TEXT[start:end]
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / 'config'
+            block = block.replace('/etc/tcp-brutal-manager', str(destination))
+            result = subprocess.run(['bash', '-c', 'set -e; CONFIG_READY=0; ' + block], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue((destination / 'config.example.json').is_file())
+            self.assertFalse((destination / 'config.json').exists())
+            example = json.loads((destination / 'config.example.json').read_text())
+            self.assertEqual(example['rules'][0]['ip'], '192.0.2.1')
+
     def test_archive_checksum_and_member(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
