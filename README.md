@@ -1,5 +1,20 @@
 # TCP Brutal Manager
 
+## Online installer
+
+Use [`install.sh`](install.sh) for the latest stable release (currently [1.0.1](https://github.com/XHQ6666/TCP-Brutal-Manager/releases/tag/v1.0.1)). It supports `install`, `update`, `check`, `--beta`, `--version`, archive verification and configuration preservation. The repository is private; authenticated download instructions and migration details are in [Online installation](docs/INSTALL.md).
+
+```bash
+gh api --method GET 'repos/XHQ6666/TCP-Brutal-Manager/contents/install.sh?ref=main' \
+  -H 'Accept: application/vnd.github.raw+json' > install.sh
+# Run on the target Linux host; first installation needs your configuration:
+sudo --preserve-env=GH_TOKEN bash install.sh install --config /path/to/config.json
+# Existing installation:
+sudo --preserve-env=GH_TOKEN bash install.sh update
+```
+
+The installer downloads release binaries independently of the source version on this branch. The following source-build documentation describes this branch.
+
 TCP Brutal Manager **1.0.0** manages Linux TCP Brutal rules from a JSON configuration. It uses official `brutalctl` for rule operations and ordinary routes, and Netlink for existing policy-route attributes. Run mode watches configuration and route/link events, polls rules, and refreshes domain records on an independent DNS timer.
 
 ## Requirements
